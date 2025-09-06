@@ -26,6 +26,8 @@
 
 !!! tip "Quickstart"
 
+    We provide two different scripts: `swebench` and `swebench-single`:
+
     === "Batch mode"
 
         Batch mode runs on all task instances in parallel.
@@ -106,16 +108,32 @@
 
 !!! tip "Evaluating on SWE-bench"
 
-    You can use the [sb-cli](https://www.swebench.com/sb-cli/) for extremely fast, cloud-based evaluations
-    (and it's free!). After installing it and getting a token, simply run:
+    You have two options to evaluate on SWE-bench: Our free cloud-based evaluation or the SWE-bench CLI.
 
-    ```bash
-    sb-cli submit swe-bench_verified test --predictions_path preds.json --run_id some-id-for-your-run
-    ```
+    === "Cloud-based evaluation"
 
-    Typically you will have results within 20 minutes (this is not limited by how many instances you run,
-    but by the slowest-to-evaluate instance in SWE-bench).
+        You can use the [sb-cli](https://www.swebench.com/sb-cli/) for extremely fast, cloud-based evaluations
+        (and it's free!). After installing it and getting a token, simply run:
 
+        ```bash
+        sb-cli submit swe-bench_verified test --predictions_path preds.json --run_id some-id-for-your-run
+        ```
+
+        Typically you will have results within 20 minutes (this is not limited by how many instances you run,
+        but by the slowest-to-evaluate instance in SWE-bench).
+
+    === "Local evaluation"
+
+        You can also use a local installation of [SWE-bench](https://github.com/SWE-bench/SWE-bench)
+        for evaluation:
+
+        ```bash
+        python -m swebench.harness.run_evaluation \
+            --dataset_name princeton-nlp/SWE-bench_Verified \
+            --predictions_path all_preds.jsonl \
+            --max_workers <num_workers> \
+            --run_id <run_id>
+        ```
 
 ## FAQ
 
@@ -146,6 +164,26 @@ They might be pulling docker containers -- the run should start immediately the 
 
 Try running the docker command manually to see what's going on (it should be printed out in the console).
 Confirm that it's running with `docker ps`, and that you can use `docker exec -it <container-id> ls` to get some output.
+
+> Can I run a startup command in the environment?
+
+Yes, you can use the `run.env_startup_command` config option to run a command in the environment before the agent starts.
+For example:
+
+```yaml
+run:
+  env_startup_command: "apt-get update && apt-get install -y python3-pip"
+```
+
+The command is rendered with the instance variables as template variables using `jinja2`.
+For example, you could use
+
+```yaml
+run:
+  env_startup_command: "git clone {{ repo_url }} . --force"
+```
+
+which might be particularly useful when running with environments like [`bubblewrap`](../reference/environments/bubblewrap.md).
 
 ## Implementation
 
