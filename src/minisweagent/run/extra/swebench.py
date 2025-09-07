@@ -77,14 +77,17 @@ def get_swebench_docker_image_name(instance: dict) -> str:
     return image_name
 
 
-def get_sb_environment(config: dict, instance: dict) -> Environment:
+def get_sb_environment(config: dict, instance: dict, data_source: str) -> Environment:
     env_config = config.setdefault("environment", {})
     env_config["environment_class"] = env_config.get("environment_class", "docker")
-    image_name = get_swebench_docker_image_name(instance)
+    image_name = get_docker_image_name(instance, data_source)
     if env_config["environment_class"] == "docker":
-        env_config["image"] = image_name
+        if env_config.get("executable", "docker") == "podman":
+            env_config["image"] = f"docker://{image_name}"
+        else:
+            env_config["image"] = image_name
     elif env_config["environment_class"] == "singularity":
-        env_config["image"] = "docker://" + image_name
+        env_config["image"] = f"docker://{image_name}"
     env = get_environment(env_config)
     if startup_command := config.get("run", {}).get("env_startup_command"):
         startup_command = Template(startup_command).render(**instance)
@@ -92,6 +95,44 @@ def get_sb_environment(config: dict, instance: dict) -> Environment:
         if out["returncode"] != 0:
             raise RuntimeError(f"Error executing startup command: {out}")
     return env
+
+
+def get_docker_image_name(instance: dict, data_source: str) -> str:
+    """Get the image name for a SWEBench/SWE-Gym instance."""
+    image_name = instance.get("image_name", None)
+    if image_name is None:
+        iid = instance["instance_id"]
+        if "swe-gym" in data_source.lower():
+            id_docker_compatible = iid.replace("__", "_s_")  # to comply with docker image naming convention
+            image_name = f"xingyaoww/sweb.eval.x86_64.{id_docker_compatible}:latest".lower()
+        elif "r2e-gym" in data_source.lower():
+            return instance["instance_id"]
+        elif "swe-bench" in data_source.lower():
+            # Docker doesn't allow double underscore, so we replace them with a magic token
+            id_docker_compatible = iid.replace("__", "_1776_")
+            image_name = f"swebench/sweb.eval.x86_64.{id_docker_compatible}:latest".lower()
+        else:
+            raise NotImplementedError(f"Data source: {data_source} is not supported")
+    return image_name
+
+
+def setup_r2e_instance(env: Environment):
+    env.execute("ln -s  /testbed/.venv /root/.venv")
+    env.execute("ln -s  /testbed/.venv/bin/python /root/.local/bin/python")
+    env.execute("ln -s  /testbed/.venv/bin/python /root/.local/bin/python3")
+    env.execute(r"find /testbed/.venv/bin -type f -executable -exec ln -sf {} /root/.local/bin/ \;")
+    env.execute("uv pip install chardet")
+
+    env.execute("find . -name '*.pyc' -delete")
+    env.execute("find . -name '__pycache__' -exec rm -rf {} +")
+    env.execute("find /r2e_tests -name '*.pyc' -delete")
+    env.execute("find /r2e_tests -name '__pycache__' -exec rm -rf {} +")
+    # skip files
+    env.execute("mv /testbed/run_tests.sh /root/run_tests.sh")
+    env.execute("mv /testbed/r2e_tests /root/r2e_tests")
+
+    env.execute("mv /r2e_tests /root/r2e_tests")
+    env.execute("ln -s /root/r2e_tests/ /testbed/r2e_tests")
 
 
 def update_preds_file(output_path: Path, instance_id: str, model_name: str, result: str):
@@ -141,7 +182,8 @@ def process_instance(
     extra_info = None
 
     try:
-        env = get_sb_environment(config, instance)
+        env = get_sb_environment(config, instance, "swe-bench")
+        # setup_r2e_instance(env)
         agent = ProgressTrackingAgent(
             model,
             env,
@@ -213,6 +255,10 @@ def main(
     dataset_path = DATASET_MAPPING.get(subset, subset)
     logger.info(f"Loading dataset {dataset_path}, split {split}...")
     instances = list(load_dataset(dataset_path, split=split))
+
+    # instances = list(load_dataset("parquet", data_files=[os.path.join(subset, f"{split}.parquet")])["train"])
+    # instances = list(load_dataset("parquet", data_files=[os.path.join(subset, f"{split}.parquet")])["train"])
+    # instances = list(load_dataset(subset, split=split))
 
     instances = filter_instances(instances, filter_spec=filter_spec, slice_spec=slice_spec, shuffle=shuffle)
     if not redo_existing and (output_path / "preds.json").exists():

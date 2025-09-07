@@ -75,7 +75,7 @@ def evaluate_instance(
 
     env = None
     try:
-        env = get_sb_environment(config, instance)
+        env = get_sb_environment(config, instance, "swe-gym")
     except Exception as e:
         ret["eval_error"] = f"Env creation failed with {e}"
         logger.info(f"Starting environment failed with exception: {e}\n, {traceback.format_exc()}")
@@ -141,6 +141,10 @@ def main(
 
     with open(output_path / "preds.json") as f:
         predictions = json.load(f)
+
+    if len(predictions) < len(instances):
+        instances = [instance for instance in instances if instance["instance_id"] in predictions]
+        logger.info(f"Running evaluation only on {len(instances)} with predictions")
 
     config = yaml.safe_load(get_config_path(config_spec).read_text())
     if environment_class is not None:
